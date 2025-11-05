@@ -28,6 +28,7 @@ export default function App() {
     if (!authLoading) {
       if (user && session) {
         dispatch(setAuth({ user, session }));
+        // Always check profile status for existing users
         checkOnboardingStatus();
       } else {
         dispatch(clearAuth());
@@ -44,7 +45,14 @@ export default function App() {
       const response = await api.getProfile(accessToken);
       const profile = response.profile;
 
-      if (!profile.consentTimestamp || !profile.jobPreferences || profile.jobPreferences.length === 0) {
+      // Check if profile exists and is complete
+      const isProfileComplete = profile && 
+        profile.name && 
+        profile.experienceYears !== undefined && 
+        profile.jobPreferences && 
+        profile.jobPreferences.length > 0;
+
+      if (!isProfileComplete) {
         dispatch(setNeedsOnboarding(true));
         dispatch(setCurrentScreen('onboarding'));
       } else {
@@ -53,7 +61,8 @@ export default function App() {
         loadDashboardData(accessToken);
       }
     } catch (error) {
-      console.error("Error checking onboarding status:", error);
+      console.error("Error checking profile:", error);
+      // If profile doesn't exist or error occurs, show onboarding
       dispatch(setNeedsOnboarding(true));
       dispatch(setCurrentScreen('onboarding'));
     }
@@ -83,7 +92,7 @@ export default function App() {
   };
 
   const handleAuthSuccess = () => {
-    // Auth hook will update and trigger the useEffect
+    // Auth hook will update and trigger the useEffect to check profile
   };
 
   const handleOnboardingComplete = () => {
