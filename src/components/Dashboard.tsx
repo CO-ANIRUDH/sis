@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { useAppDispatch, useAppSelector } from "../store/hooks";
+import { setSessions, setStats, setLoading } from "../store/slices/interviewSlice";
+import { toggleTheme } from "../store/slices/appSlice";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Badge } from "./ui/badge";
-import { Progress } from "./ui/progress";
 import { api } from "../utils/api";
 import { 
   Trophy, 
@@ -14,9 +16,18 @@ import {
   Users,
   Sparkles,
   Target,
-  Zap
+  Zap,
+  Settings,
+  Moon,
+  Sun
 } from "lucide-react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
+import { Loading } from "./ui/loading";
+import { StatCard } from "./common/StatCard";
+import { GradientButton } from "./common/GradientButton";
+import { SessionCard } from "./common/SessionCard";
+import { PageHeader } from "./layout/PageHeader";
+import { EmptyState } from "./common/EmptyState";
+import { Chart } from "./common/Chart";
 
 interface DashboardProps {
   accessToken: string;
@@ -31,27 +42,33 @@ export const Dashboard = ({
   onViewLeaderboard,
   onViewProfile 
 }: DashboardProps) => {
-  const [stats, setStats] = useState<any>(null);
-  const [sessions, setSessions] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const dispatch = useAppDispatch();
+  const { sessions, stats, loading } = useAppSelector((state) => state.interview);
+  const { theme } = useAppSelector((state) => state.app);
 
   useEffect(() => {
     loadData();
   }, []);
 
   const loadData = async () => {
+    dispatch(setLoading(true));
     try {
       const [profileData, sessionsData] = await Promise.all([
         api.getProfile(accessToken),
         api.getSessions(accessToken)
       ]);
 
-      setStats(profileData.stats);
-      setSessions(sessionsData.sessions || []);
+      dispatch(setStats(profileData.stats || {
+        totalSessions: 0,
+        totalPoints: 0,
+        bestScore: 0,
+        currentStreak: 0,
+      }));
+      dispatch(setSessions(sessionsData.sessions || []));
     } catch (error) {
       console.error("Error loading dashboard data:", error);
     } finally {
-      setLoading(false);
+      dispatch(setLoading(false));
     }
   };
 
@@ -66,18 +83,6 @@ export const Dashboard = ({
       }));
   };
 
-  const getScoreColor = (score: number) => {
-    if (score >= 80) return 'text-green-600';
-    if (score >= 60) return 'text-yellow-600';
-    return 'text-red-600';
-  };
-
-  const getScoreBadgeVariant = (score: number): "default" | "secondary" | "destructive" => {
-    if (score >= 80) return 'default';
-    if (score >= 60) return 'secondary';
-    return 'destructive';
-  };
-
   const averageScore = sessions
     .filter((s: any) => s.status === 'completed' && s.overallScore !== undefined)
     .reduce((sum: number, s: any) => sum + s.overallScore, 0) / 
@@ -85,202 +90,153 @@ export const Dashboard = ({
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading dashboard...</p>
-        </div>
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-blue-900 flex items-center justify-center">
+        <Loading size="lg" text="Loading Dashboard" className="animate-fade-in" />
       </div>
     );
   }
 
+  const headerActions = (
+    <>
+      <Button 
+        variant="outline" 
+        size="sm"
+        onClick={() => dispatch(toggleTheme())}
+        className="hidden sm:flex border-2 hover:bg-gray-50 dark:hover:bg-gray-700"
+      >
+        {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+      </Button>
+      <Button 
+        variant="outline" 
+        onClick={onViewProfile} 
+        className="hidden sm:flex border-2 hover:bg-gray-50 dark:hover:bg-gray-700"
+      >
+        <Settings className="w-4 h-4 mr-2" />
+        Profile
+      </Button>
+      <GradientButton onClick={onStartInterview} icon={Play} size="lg">
+        Start Interview
+      </GradientButton>
+    </>
+  );
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
-      {/* Header */}
-      <div className="bg-white border-b shadow-sm">
-        <div className="container mx-auto px-4 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                Dashboard
-              </h2>
-              <p className="text-gray-600 mt-1">Track your interview practice progress</p>
-            </div>
-            <div className="flex gap-3">
-              <Button variant="outline" onClick={onViewProfile} className="hidden sm:flex">
-                Profile
-              </Button>
-              <Button onClick={onStartInterview} size="lg" className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 shadow-lg">
-                <Play className="w-4 h-4 mr-2" />
-                Start Interview
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-blue-900">
+      <PageHeader
+        title="Dashboard"
+        subtitle="Track your interview practice progress"
+        icon={BarChart3}
+        actions={headerActions}
+      />
 
       <div className="container mx-auto px-4 py-8">
         {/* Stats Overview */}
         <div className="grid md:grid-cols-4 gap-6 mb-8">
-          <Card className="p-6 hover:shadow-lg transition-shadow border-2 hover:border-blue-200">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-medium text-gray-600">Total Sessions</p>
-              <Calendar className="w-5 h-5 text-blue-600" />
-            </div>
-            <p className="text-4xl font-bold text-gray-900 mb-2">{stats?.totalSessions || 0}</p>
-            <div className="flex items-center gap-1 text-sm text-gray-600">
-              <TrendingUp className="w-4 h-4 text-green-600" />
-              <span>Keep practicing!</span>
-            </div>
-          </Card>
-
-          <Card className="p-6 hover:shadow-lg transition-shadow border-2 hover:border-yellow-200">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-medium text-gray-600">Total Points</p>
-              <Trophy className="w-5 h-5 text-yellow-600" />
-            </div>
-            <p className="text-4xl font-bold text-gray-900 mb-2">{stats?.totalPoints || 0}</p>
-            <div className="flex items-center gap-1 text-sm text-gray-600">
-              <Sparkles className="w-4 h-4 text-purple-600" />
-              <span>Points earned</span>
-            </div>
-          </Card>
-
-          <Card className="p-6 hover:shadow-lg transition-shadow border-2 hover:border-green-200">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-medium text-gray-600">Best Score</p>
-              <Award className="w-5 h-5 text-green-600" />
-            </div>
-            <p className="text-4xl font-bold text-gray-900 mb-2">
-              {stats?.bestScore?.toFixed(0) || averageScore.toFixed(0) || 0}
-            </p>
-            <Progress 
-              value={stats?.bestScore || averageScore || 0} 
-              className="h-2 mt-2"
-            />
-          </Card>
-
-          <Card className="p-6 hover:shadow-lg transition-shadow border-2 hover:border-orange-200">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-medium text-gray-600">Current Streak</p>
-              <Zap className="w-5 h-5 text-orange-600" />
-            </div>
-            <p className="text-4xl font-bold text-gray-900 mb-2">
-              {stats?.currentStreak || 0}
-              <span className="text-2xl ml-2">🔥</span>
-            </p>
-            <div className="flex items-center gap-1 text-sm text-gray-600">
-              <Target className="w-4 h-4 text-blue-600" />
-              <span>Days in a row</span>
-            </div>
-          </Card>
+          <StatCard
+            title="Total Sessions"
+            value={stats.totalSessions}
+            icon={Calendar}
+            subtitle="Keep practicing!"
+            color="blue"
+            className="animate-slide-in-up"
+          />
+          <StatCard
+            title="Total Points"
+            value={stats.totalPoints}
+            icon={Trophy}
+            subtitle="Points earned"
+            color="yellow"
+            className="animate-slide-in-up stagger-2"
+          />
+          <StatCard
+            title="Best Score"
+            value={stats.bestScore?.toFixed(0) || averageScore.toFixed(0) || 0}
+            icon={Award}
+            color="green"
+            progress={stats.bestScore || averageScore || 0}
+            className="animate-slide-in-up stagger-3"
+          />
+          <StatCard
+            title="Current Streak"
+            value={`${stats.currentStreak} 🔥`}
+            icon={Zap}
+            subtitle="Days in a row"
+            color="orange"
+            className="animate-slide-in-up stagger-4"
+          />
         </div>
 
-        <div className="grid md:grid-cols-2 gap-6 mb-8">
+        <div className="grid lg:grid-cols-3 gap-6 mb-8">
           {/* Progress Chart */}
-          <Card className="p-6 border-2">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h3 className="text-xl font-bold text-gray-900">Progress Over Time</h3>
-                <p className="text-sm text-gray-600 mt-1">Your performance trends</p>
-              </div>
-              <BarChart3 className="w-6 h-6 text-gray-400" />
-            </div>
-            {getProgressChartData().length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <AreaChart data={getProgressChartData()}>
-                  <defs>
-                    <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis 
-                    dataKey="session" 
-                    stroke="#6b7280"
-                    tick={{ fill: '#6b7280', fontSize: 12 }}
-                  />
-                  <YAxis 
-                    domain={[0, 100]} 
-                    stroke="#6b7280"
-                    tick={{ fill: '#6b7280', fontSize: 12 }}
-                  />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: '#1f2937', 
-                      border: '1px solid #374151',
-                      borderRadius: '8px',
-                      color: '#fff'
-                    }}
-                  />
-                  <Area 
-                    type="monotone" 
-                    dataKey="score" 
-                    stroke="#3b82f6" 
-                    strokeWidth={3}
-                    fill="url(#colorScore)"
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="score" 
-                    stroke="#3b82f6" 
-                    strokeWidth={2}
-                    dot={{ fill: '#3b82f6', r: 4 }}
-                    activeDot={{ r: 6 }}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-64 flex flex-col items-center justify-center text-gray-500">
-                <BarChart3 className="w-16 h-16 mb-4 opacity-30" />
-                <p className="text-lg mb-2">No session data yet</p>
-                <p className="text-sm mb-4">Start your first interview to see your progress!</p>
-                <Button onClick={onStartInterview} size="sm">
-                  Get Started
-                </Button>
-              </div>
-            )}
-          </Card>
+          <Chart
+            title="Progress Over Time"
+            subtitle="Your performance trends"
+            icon={BarChart3}
+            data={getProgressChartData()}
+            dataKey="score"
+            xAxisKey="session"
+            color="#3b82f6"
+            height={300}
+            emptyState={{
+              icon: BarChart3,
+              title: "No session data yet",
+              description: "Start your first interview to see your progress!",
+              action: {
+                label: "Get Started",
+                onClick: onStartInterview,
+                icon: Play
+              }
+            }}
+            className="lg:col-span-2 animate-slide-in-up"
+            style={{ animationDelay: '0.4s' }}
+          />
 
           {/* Quick Actions */}
-          <Card className="p-6 border-2">
-            <h3 className="text-xl font-bold mb-2 text-gray-900">Quick Actions</h3>
-            <p className="text-sm text-gray-600 mb-6">Get started with your next practice session</p>
-            <div className="space-y-3">
-              <Button 
-                onClick={onStartInterview} 
-                className="w-full justify-start h-auto py-4 text-left bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 shadow-md hover:shadow-lg transition-all" 
-                size="lg"
+          <Card className="p-6 border-2 bg-gradient-to-br from-white to-purple-50/30 dark:from-gray-800 dark:to-purple-900/20 animate-slide-in-up stagger-5">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 bg-purple-100 dark:bg-purple-900 rounded-lg">
+                <Sparkles className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white">Quick Actions</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Get started with your next practice</p>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <GradientButton 
+                onClick={onStartInterview}
+                icon={Play}
+                className="w-full justify-start h-auto py-4 text-left"
               >
-                <Play className="w-5 h-5 mr-3" />
                 <div>
-                  <div className="font-semibold">Start New Interview Practice</div>
-                  <div className="text-xs opacity-90">Practice with AI-powered questions</div>
+                  <div className="font-semibold">Start New Interview</div>
+                  <div className="text-xs opacity-90">AI-powered practice session</div>
                 </div>
-              </Button>
+              </GradientButton>
+              
               <Button 
                 onClick={onViewLeaderboard} 
                 variant="outline" 
-                className="w-full justify-start h-auto py-4 text-left border-2 hover:bg-gray-50" 
+                className="w-full justify-start h-auto py-4 text-left border-2 hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-gray-300 dark:hover:border-gray-600 transition-all" 
                 size="lg"
               >
                 <Users className="w-5 h-5 mr-3" />
                 <div>
                   <div className="font-semibold">View Leaderboard</div>
-                  <div className="text-xs text-gray-600">See how you rank</div>
+                  <div className="text-xs text-gray-600 dark:text-gray-400">See how you rank</div>
                 </div>
               </Button>
+              
               <Button 
                 onClick={onViewProfile} 
                 variant="outline" 
-                className="w-full justify-start h-auto py-4 text-left border-2 hover:bg-gray-50" 
+                className="w-full justify-start h-auto py-4 text-left border-2 hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-gray-300 dark:hover:border-gray-600 transition-all" 
                 size="lg"
               >
-                <Award className="w-5 h-5 mr-3" />
+                <Settings className="w-5 h-5 mr-3" />
                 <div>
-                  <div className="font-semibold">Update Profile & Settings</div>
-                  <div className="text-xs text-gray-600">Customize your preferences</div>
+                  <div className="font-semibold">Profile & Settings</div>
+                  <div className="text-xs text-gray-600 dark:text-gray-400">Customize preferences</div>
                 </div>
               </Button>
             </div>
@@ -288,76 +244,44 @@ export const Dashboard = ({
         </div>
 
         {/* Recent Sessions */}
-        <Card className="p-6 border-2">
+        <Card className="p-6 border-2 bg-gradient-to-br from-white to-gray-50/30 dark:from-gray-800 dark:to-gray-700/30 animate-slide-in-up stagger-5">
           <div className="flex items-center justify-between mb-6">
-            <div>
-              <h3 className="text-xl font-bold text-gray-900">Recent Interview Sessions</h3>
-              <p className="text-sm text-gray-600 mt-1">Your latest practice sessions</p>
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                <Calendar className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white">Recent Interview Sessions</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Your latest practice sessions</p>
+              </div>
             </div>
-            <Badge variant="secondary" className="hidden sm:flex">
+            <Badge variant="secondary" className="hidden sm:flex bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
               {sessions.length} Total
             </Badge>
           </div>
+          
           {sessions.length > 0 ? (
             <div className="space-y-4">
-              {sessions.slice(0, 5).map((session: any) => (
-                <div 
+              {sessions.slice(0, 5).map((session: any, index: number) => (
+                <SessionCard 
                   key={session.id} 
-                  className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 bg-gradient-to-r from-gray-50 to-white rounded-lg border-2 hover:border-blue-200 hover:shadow-md transition-all gap-4"
-                >
-                  <div className="flex-1">
-                    <div className="flex flex-wrap items-center gap-3 mb-2">
-                      <h4 className="font-semibold text-gray-900">{session.jobProfile}</h4>
-                      <Badge variant="outline" className="border-gray-300">{session.interviewType}</Badge>
-                      <Badge variant="secondary">{session.difficulty}</Badge>
-                      {session.mode === 'Practice' ? (
-                        <Badge className="bg-blue-600">Practice</Badge>
-                      ) : (
-                        <Badge variant="outline" className="border-gray-400">Mock</Badge>
-                      )}
-                    </div>
-                    <p className="text-sm text-gray-600">
-                      {new Date(session.startTime).toLocaleDateString('en-US', { 
-                        month: 'short', 
-                        day: 'numeric',
-                        year: 'numeric'
-                      })} at{' '}
-                      {new Date(session.startTime).toLocaleTimeString('en-US', { 
-                        hour: 'numeric', 
-                        minute: '2-digit' 
-                      })}
-                    </p>
-                  </div>
-                  {session.status === 'completed' && session.overallScore !== undefined && (
-                    <div className="text-right sm:text-left">
-                      <div className={`text-3xl font-bold ${getScoreColor(session.overallScore)} mb-1`}>
-                        {session.overallScore.toFixed(0)}
-                      </div>
-                      <p className="text-sm text-gray-600">Score</p>
-                      <Progress 
-                        value={session.overallScore} 
-                        className="w-20 sm:w-full mt-2 h-2"
-                      />
-                    </div>
-                  )}
-                  {session.status === 'in_progress' && (
-                    <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
-                      In Progress
-                    </Badge>
-                  )}
-                </div>
+                  session={session}
+                  className="animate-slide-in-up"
+                  style={{ animationDelay: `${0.7 + index * 0.1}s` }}
+                />
               ))}
             </div>
           ) : (
-            <div className="text-center py-16">
-              <Calendar className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-              <p className="text-lg text-gray-600 mb-2">No sessions yet</p>
-              <p className="text-sm text-gray-500 mb-6">Start your first interview practice to see your history here!</p>
-              <Button onClick={onStartInterview} size="lg" className="bg-gradient-to-r from-blue-600 to-purple-600">
-                <Play className="w-4 h-4 mr-2" />
-                Get Started
-              </Button>
-            </div>
+            <EmptyState
+              icon={Calendar}
+              title="No sessions yet"
+              description="Start your first interview practice to see your history and track your progress over time!"
+              action={{
+                label: "Start Your First Interview",
+                onClick: onStartInterview,
+                icon: Play
+              }}
+            />
           )}
         </Card>
       </div>

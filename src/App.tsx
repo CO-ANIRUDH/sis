@@ -1,5 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { useAppDispatch, useAppSelector } from "./store/hooks";
+import { setAuth, clearAuth, setLoading } from "./store/slices/authSlice";
+import { setCurrentScreen, setNeedsOnboarding } from "./store/slices/appSlice";
+import { setInterviewConfig, completeSession, clearCurrentSession, setSessions, setStats } from "./store/slices/interviewSlice";
 import { useAuth } from "./utils/useAuth";
+import { ThemeProvider } from "./components/ThemeProvider";
 import { LandingPage } from "./components/LandingPage";
 import { AuthPage } from "./components/AuthPage";
 import { Onboarding } from "./components/Onboarding";
@@ -10,35 +15,26 @@ import { FeedbackReport } from "./components/FeedbackReport";
 import { Leaderboard } from "./components/Leaderboard";
 import { ProfileSettings } from "./components/ProfileSettings";
 import { Toaster } from "./components/ui/sonner";
+import { Loading } from "./components/ui/loading";
 import { api } from "./utils/api";
 
-type AppScreen = 
-  | 'landing'
-  | 'auth'
-  | 'onboarding'
-  | 'dashboard'
-  | 'setup'
-  | 'session'
-  | 'feedback'
-  | 'leaderboard'
-  | 'profile';
-
 export default function App() {
+  const dispatch = useAppDispatch();
   const { user, session, loading: authLoading } = useAuth();
-  const [screen, setScreen] = useState<AppScreen>('landing');
-  const [needsOnboarding, setNeedsOnboarding] = useState(false);
-  const [interviewConfig, setInterviewConfig] = useState<InterviewConfig | null>(null);
-  const [sessionResults, setSessionResults] = useState<any>(null);
+  const { currentScreen, needsOnboarding } = useAppSelector((state) => state.app);
+  const { currentConfig, sessionResults } = useAppSelector((state) => state.interview);
 
   useEffect(() => {
     if (!authLoading) {
       if (user && session) {
+        dispatch(setAuth({ user, session }));
         checkOnboardingStatus();
       } else {
-        setScreen('landing');
+        dispatch(clearAuth());
+        dispatch(setCurrentScreen('landing'));
       }
     }
-  }, [user, session, authLoading]);
+  }, [user, session, authLoading, dispatch]);
 
   const checkOnboardingStatus = async () => {
     try {
@@ -48,24 +44,42 @@ export default function App() {
       const response = await api.getProfile(accessToken);
       const profile = response.profile;
 
-      // Check if user needs onboarding
       if (!profile.consentTimestamp || !profile.jobPreferences || profile.jobPreferences.length === 0) {
-        setNeedsOnboarding(true);
-        setScreen('onboarding');
+        dispatch(setNeedsOnboarding(true));
+        dispatch(setCurrentScreen('onboarding'));
       } else {
-        setNeedsOnboarding(false);
-        setScreen('dashboard');
+        dispatch(setNeedsOnboarding(false));
+        dispatch(setCurrentScreen('dashboard'));
+        loadDashboardData(accessToken);
       }
     } catch (error) {
       console.error("Error checking onboarding status:", error);
-      // Default to onboarding if we can't check
-      setNeedsOnboarding(true);
-      setScreen('onboarding');
+      dispatch(setNeedsOnboarding(true));
+      dispatch(setCurrentScreen('onboarding'));
+    }
+  };
+
+  const loadDashboardData = async (accessToken: string) => {
+    try {
+      const [profileData, sessionsData] = await Promise.all([
+        api.getProfile(accessToken),
+        api.getSessions(accessToken)
+      ]);
+
+      dispatch(setStats(profileData.stats || {
+        totalSessions: 0,
+        totalPoints: 0,
+        bestScore: 0,
+        currentStreak: 0,
+      }));
+      dispatch(setSessions(sessionsData.sessions || []));
+    } catch (error) {
+      console.error("Error loading dashboard data:", error);
     }
   };
 
   const handleGetStarted = () => {
-    setScreen('auth');
+    dispatch(setCurrentScreen('auth'));
   };
 
   const handleAuthSuccess = () => {
@@ -73,79 +87,98 @@ export default function App() {
   };
 
   const handleOnboardingComplete = () => {
-    setNeedsOnboarding(false);
-    setScreen('dashboard');
+    dispatch(setNeedsOnboarding(false));
+    dispatch(setCurrentScreen('dashboard'));
+    if (session?.access_token) {
+      loadDashboardData(session.access_token);
+    }
   };
 
   const handleStartInterview = () => {
-    setScreen('setup');
+    dispatch(setCurrentScreen('setup'));
   };
 
   const handleInterviewStart = (config: InterviewConfig) => {
-    setInterviewConfig(config);
-    setScreen('session');
+    dispatch(setInterviewConfig(config));
+    dispatch(setCurrentScreen('session'));
   };
 
   const handleInterviewComplete = (results: any) => {
-    setSessionResults(results);
-    setScreen('feedback');
+    dispatch(completeSession(results));
+    dispatch(setCurrentScreen('feedback'));
   };
 
   const handleBackToDashboard = () => {
-    setScreen('dashboard');
-    setInterviewConfig(null);
-    setSessionResults(null);
+    dispatch(setCurrentScreen('dashboard'));
+    dispatch(clearCurrentSession());
+    if (session?.access_token) {
+      loadDashboardData(session.access_token);
+    }
   };
 
   const handleViewLeaderboard = () => {
-    setScreen('leaderboard');
+    dispatch(setCurrentScreen('leaderboard'));
   };
 
   const handleViewProfile = () => {
-    setScreen('profile');
+    dispatch(setCurrentScreen('profile'));
   };
 
   const handleSignOut = () => {
-    setScreen('landing');
-    setNeedsOnboarding(false);
-    setInterviewConfig(null);
-    setSessionResults(null);
+    dispatch(clearAuth());
+    dispatch(setCurrentScreen('landing'));
+    dispatch(clearCurrentSession());
   };
 
-  // Show loading state
+  // Enhanced loading state with better UI
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
+      <ThemeProvider>
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-blue-900 flex items-center justify-center transition-colors duration-300">
+          <Loading 
+            size="lg" 
+            text="Loading Smart Interview System" 
+            className="animate-fade-in"
+          />
         </div>
-      </div>
+      </ThemeProvider>
     );
   }
 
   const accessToken = session?.access_token || '';
 
   return (
-    <div className="min-h-screen">
-      <Toaster />
+    <ThemeProvider>
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-blue-50 dark:from-gray-900 dark:via-gray-800 dark:to-blue-900 transition-colors duration-300">
+        <Toaster 
+          position="top-right"
+          toastOptions={{
+            duration: 4000,
+            style: {
+              background: 'white',
+              border: '1px solid #e5e7eb',
+              borderRadius: '12px',
+              boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            },
+          }}
+        />
       
-      {screen === 'landing' && (
+      {currentScreen === 'landing' && (
         <LandingPage onGetStarted={handleGetStarted} />
       )}
 
-      {screen === 'auth' && (
+      {currentScreen === 'auth' && (
         <AuthPage onAuthSuccess={handleAuthSuccess} />
       )}
 
-      {screen === 'onboarding' && accessToken && (
+      {currentScreen === 'onboarding' && accessToken && (
         <Onboarding 
           accessToken={accessToken}
           onComplete={handleOnboardingComplete}
         />
       )}
 
-      {screen === 'dashboard' && accessToken && (
+      {currentScreen === 'dashboard' && accessToken && (
         <Dashboard
           accessToken={accessToken}
           onStartInterview={handleStartInterview}
@@ -154,39 +187,40 @@ export default function App() {
         />
       )}
 
-      {screen === 'setup' && (
+      {currentScreen === 'setup' && (
         <InterviewSetup
           onBack={handleBackToDashboard}
           onStart={handleInterviewStart}
         />
       )}
 
-      {screen === 'session' && accessToken && interviewConfig && (
+      {currentScreen === 'session' && accessToken && currentConfig && (
         <InterviewSession
           accessToken={accessToken}
-          config={interviewConfig}
+          config={currentConfig}
           onComplete={handleInterviewComplete}
         />
       )}
 
-      {screen === 'feedback' && sessionResults && (
+      {currentScreen === 'feedback' && sessionResults && (
         <FeedbackReport
           results={sessionResults}
           onBackToDashboard={handleBackToDashboard}
         />
       )}
 
-      {screen === 'leaderboard' && (
+      {currentScreen === 'leaderboard' && (
         <Leaderboard onBack={handleBackToDashboard} />
       )}
 
-      {screen === 'profile' && accessToken && (
+      {currentScreen === 'profile' && accessToken && (
         <ProfileSettings
           accessToken={accessToken}
           onBack={handleBackToDashboard}
           onSignOut={handleSignOut}
         />
       )}
-    </div>
+      </div>
+    </ThemeProvider>
   );
 }
